@@ -1,0 +1,35 @@
+{
+  "categories": [
+    {
+      "name": "Mains",
+      "items": [
+        { "name": "Margherita Pizza",   "price": 10.00, "allergens": ["gluten", "dairy"] },
+        { "name": "Pepperoni Pizza",    "price": 12.00, "allergens": ["gluten", "dairy"] },
+        { "name": "Caesar Salad",       "price": 7.00,  "allergens": ["dairy", "eggs"]  },
+        { "name": "Garden Salad",       "price": 5.00,  "allergens": []                 }
+      ]
+    },
+    {
+      "name": "Sides",
+      "items": [
+        { "name": "Garlic Bread",  "price": 3.50, "allergens": ["gluten", "dairy"] },
+        { "name": "French Fries", "price": 3.00,  "allergens": ["gluten"]          }
+      ]
+    },
+    {
+      "name": "Drinks",
+      "items": [
+        { "name": "Coffee",       "price": 2.50, "allergens": [] },
+        { "name": "Orange Juice", "price": 3.00, "allergens": [] },
+        { "name": "Water",        "price": 1.00, "allergens": [] }
+      ]
+    },
+    {
+      "name": "Desserts",
+      "items": [
+        { "name": "Ice Cream",    "price": 3.50, "allergens": ["dairy"]         },
+        { "name": "Cheesecake",   "price": 5.00, "allergens": ["gluten", "dairy", "eggs"] }
+      ]
+    }
+  ]
+}
