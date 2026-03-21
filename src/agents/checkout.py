@@ -3,7 +3,7 @@ from pydantic import Field
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 from src.agents.base import BaseAgent
-from src.core.resilience import build_llm, build_tts
+from src.core.resilience import build_llm_sonnet, build_tts
 from src.core.audit import AuditAction
 from src.core.pii import mask_card
 from src.models.session import UserData, PaymentInfo
@@ -17,7 +17,7 @@ class CheckoutAgent(BaseAgent):
     def __init__(self) -> None:
         super().__init__(
             instructions=load_prompt("checkout"),
-            llm=build_llm(),
+            llm=build_llm_sonnet(), # ← Claude Sonnet for high stakes payment
             tts=build_tts("checkout"),
             tools=[update_name, update_phone, to_greeter],
         )

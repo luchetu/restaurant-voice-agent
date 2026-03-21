@@ -16,6 +16,8 @@ from src.agents.checkout import CheckoutAgent
 from src.utils.logging import setup_logging
 from src.core.metrics import SessionMetrics
 from src.services.transcript_service import TranscriptService
+from src.core.intent_embeddings import get_classifier
+
 
 load_dotenv(".env.local")
 setup_logging()
@@ -30,6 +32,14 @@ async def entrypoint(ctx: JobContext):
 
     # ── Audit ──────────────────────────────────────────────
     audit = AuditLogger(session_id=session_id)
+
+
+    # ── Initialize intent classifier ──────────────────────
+    # Pre-embed all examples once at session start
+    # so first caller utterance is classified instantly
+    classifier = get_classifier()
+    if not classifier._ready:
+        await classifier.initialize()
 
     # ── Build UserData ─────────────────────────────────────
     userdata = UserData(
