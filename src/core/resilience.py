@@ -79,3 +79,21 @@ def build_vad():
     except Exception as e:
         logfire.error("vad.load_failed", error=str(e))
         raise RuntimeError("VAD failed to load — cannot start session") from e
+
+
+def build_llm_cost_aware(userdata=None):
+    """
+    Checks session cost before selecting a model.
+    If cost threshold exceeded — downgrade to cheapest model.
+    Falls back to openai if no userdata provided.
+    """
+    from livekit.plugins import openai
+
+    if userdata and userdata.metrics and userdata.metrics.should_downgrade():
+        logfire.warning(
+            "resilience.cost_downgrade",
+            total_cost=round(userdata.metrics.total_cost_usd, 4),
+        )
+        return openai.LLM(model=settings.openai_fallback_model)
+
+    return openai.LLM(model=settings.openai_fallback_model)

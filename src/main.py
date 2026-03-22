@@ -34,6 +34,13 @@ async def entrypoint(ctx: JobContext):
     audit = AuditLogger(session_id=session_id)
 
 
+    metrics = SessionMetrics(session_id=session_id)
+
+    # In production this comes from your DB lookup by phone number
+    # For now default to empty string — triggers base prompt
+    customer_name = ctx.room.metadata.get("customer_name", "") if ctx.room.metadata else ""
+
+
     # ── Initialize intent classifier ──────────────────────
     # Pre-embed all examples once at session start
     # so first caller utterance is classified instantly
@@ -51,7 +58,7 @@ async def entrypoint(ctx: JobContext):
     )
 
     # ── Instantiate all agents ─────────────────────────────
-    greeter     = GreeterAgent()
+    greeter     = GreeterAgent(customer_name=customer_name)
     reservation = ReservationAgent()
     takeaway    = TakeawayAgent()
     checkout    = CheckoutAgent()
@@ -72,7 +79,12 @@ async def entrypoint(ctx: JobContext):
         tts=build_tts("greeter"),
         vad=build_vad(),
         max_tool_steps=settings.max_tool_steps,
+        use_tts_aligned_transcript=True,    # ← word-level sync with Cartesia
+
     )
+
+ # ── Attach transcript listener before starting ─────────
+    transcript.attach(session)
 
     audit.log(
         action=AuditAction.SESSION_START,
@@ -92,6 +104,21 @@ async def entrypoint(ctx: JobContext):
     )
     userdata.metrics.finalize()
     userdata.transcript.save()
+
+
+ # ── Session ended ──────────────────────────────────────
+    summary = metrics.finalize()
+    transcript.save()
+
+    logfire.info(
+        "session.complete",
+        session_id=session_id,
+        cost_usd=summary["total_cost_usd"],
+        turns=summary["total_turns"],
+        transcript_turns=transcript.total_turns,
+        duration=summary["duration_seconds"],
+    )
+
 
 
 if __name__ == "__main__":

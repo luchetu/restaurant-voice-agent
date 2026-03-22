@@ -1,18 +1,22 @@
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 from src.agents.base import BaseAgent
-from src.core.resilience import  build_llm_groq, build_tts
+from src.core.resilience import build_llm_groq, build_tts
 from src.models.session import UserData
-from src.utils.prompt_loader import load_prompt
+from src.utils.prompt_loader import load_prompt_variant, get_active_variant_name
+import logfire
 
 RunContext_T = RunContext[UserData]
 
 
 class GreeterAgent(BaseAgent):
-    def __init__(self) -> None:
+    def __init__(self, customer_name: str = "") -> None:
+        variant = get_active_variant_name("greeter", customer_name)
+        logfire.info("greeter.prompt_variant", variant=variant)
+
         super().__init__(
-            instructions=load_prompt("greeter"),
-            llm=build_llm_groq(), # ← Groq for low latency
+            instructions=load_prompt_variant("greeter", customer_name),
+            llm=build_llm_groq(),
             tts=build_tts("greeter"),
         )
 

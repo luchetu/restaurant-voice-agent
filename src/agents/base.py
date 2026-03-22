@@ -7,7 +7,6 @@ RunContext_T = RunContext[UserData]
 
 
 class BaseAgent(Agent):
-
     async def on_enter(self) -> None:
         agent_name = self.__class__.__name__
         userdata: UserData = self.session.userdata
@@ -110,3 +109,30 @@ class BaseAgent(Agent):
             session_id=userdata.session_id,
         )
         return userdata.agents[name], "One moment, transferring you now."
+        
+    def _validate_response(self, response: str) -> bool:
+            """
+            Validate LLM response before it reaches the caller.
+           Returns True if valid, False if agent should retry.
+          """
+    from src.core.output_validator import get_validator
+    validator = get_validator()
+    agent_name = self.__class__.__name__
+    result = validator.validate(response, agent_name)
+
+    if not result.valid:
+        logfire.warning(
+            "output_validator.failed",
+            agent=agent_name,
+            reason=result.reason,
+            severity=result.severity,
+        )
+        return False
+
+    return True
+
+
+
+    
+
+     
