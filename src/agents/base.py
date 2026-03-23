@@ -1,9 +1,35 @@
 import logfire
 from livekit.agents.voice import Agent, RunContext
+
+from src.core.audit import AuditAction, AuditLogger
+from src.core.token_counter import context_usage_percent
 from src.models.session import UserData
-from src.core.audit import AuditLogger, AuditAction
 
 RunContext_T = RunContext[UserData]
+
+
+# What each agent needs from the session — agent-specific context injection
+AGENT_CONTEXT_FIELDS = {
+    "GreeterAgent": [
+        "customer_name",
+        "customer_phone",
+    ],
+    "ReservationAgent": [
+        "customer_name",
+        "customer_phone",
+        "reservation",
+    ],
+    "TakeawayAgent": [
+        "customer_name",
+        "order",
+    ],
+    "CheckoutAgent": [
+        "customer_name",
+        "customer_phone",
+        "order",
+        "payment_status",
+    ],
+}
 
 
 class BaseAgent(Agent):
@@ -11,38 +37,56 @@ class BaseAgent(Agent):
         agent_name = self.__class__.__name__
         userdata: UserData = self.session.userdata
 
-        # Update room attributes — wrapped safely, room may not be ready yet
+        # Update room attributes safely
         try:
             if userdata.ctx and userdata.ctx.room:
-                await userdata.ctx.room.local_participant.set_attributes(
-                    {"agent": agent_name}
-                )
+                await userdata.ctx.room.local_participant.set_attributes({"agent": agent_name})
         except Exception:
-            pass  # room not connected yet — non-critical, skip silently
+            pass
 
-        # Carry over last 6 messages from previous agent
+        # Track agent duration
+        if userdata.metrics:
+            userdata.metrics.agent_started(agent_name)
+
+        # Build context
         chat_ctx = self.chat_ctx.copy()
+
         if userdata.prev_agent:
             items_copy = self._truncate_chat_ctx(
                 userdata.prev_agent.chat_ctx.items,
                 keep_function_call=True,
             )
             existing_ids = {item.id for item in chat_ctx.items}
-            chat_ctx.items.extend(
-                [i for i in items_copy if i.id not in existing_ids]
+            chat_ctx.items.extend([i for i in items_copy if i.id not in existing_ids])
+
+        # Log context usage
+        usage = context_usage_percent(chat_ctx.items, self._get_model_name())
+        logfire.info(
+            "context.usage",
+            agent=agent_name,
+            usage_percent=usage,
+            session_id=userdata.session_id,
+        )
+
+        # Warn if context is getting full
+        if usage > 70:
+            logfire.warning(
+                "context.high_usage",
+                agent=agent_name,
+                usage_percent=usage,
+                session_id=userdata.session_id,
             )
 
-        # Inject agent identity + current session state
+        # Inject agent-specific context — only what this agent needs
         handoff_note = ""
         if userdata.last_handoff_reason:
             handoff_note = f"Transfer reason: {userdata.last_handoff_reason}. "
 
+        relevant_context = self._build_relevant_context(agent_name, userdata)
+
         chat_ctx.add_message(
             role="system",
-            content=(
-                f"You are the {agent_name}. {handoff_note}"
-                f"Current session:\n{userdata.summarize()}"
-            ),
+            content=(f"You are the {agent_name}. {handoff_note}{relevant_context}"),
         )
         await self.update_chat_ctx(chat_ctx)
         self.session.generate_reply()
@@ -52,9 +96,58 @@ class BaseAgent(Agent):
             userdata.audit.log(
                 action=AuditAction.AGENT_ENTER,
                 agent=agent_name,
-                detail=f"prev={userdata.prev_agent.__class__.__name__ if userdata.prev_agent else 'none'}",
+                detail=f"prev={userdata.prev_agent.__class__.__name__ if userdata.prev_agent else 'none'} context={usage}%",
             )
-        logfire.info("agent.enter", agent=agent_name, session_id=userdata.session_id)
+        logfire.info(
+            "agent.enter",
+            agent=agent_name,
+            session_id=userdata.session_id,
+            context_usage=usage,
+        )
+
+    async def on_exit(self) -> None:
+        agent_name = self.__class__.__name__
+        userdata: UserData = self.session.userdata
+        if userdata.metrics:
+            userdata.metrics.agent_ended(agent_name)
+        logfire.info("agent.exit", agent=agent_name)
+
+    def _build_relevant_context(self, agent_name: str, userdata: UserData) -> str:
+        """
+        Inject only the session fields relevant to this agent.
+        Greeter does not need payment info.
+        Checkout does not need reservation details.
+        Smaller context = lower cost + less confusion.
+        """
+        fields = AGENT_CONTEXT_FIELDS.get(agent_name, [])
+        lines = []
+
+        if "customer_name" in fields and userdata.customer.name:
+            lines.append(f"Customer name: {userdata.customer.name}")
+
+        if "customer_phone" in fields and userdata.customer.phone:
+            lines.append(f"Customer phone: {userdata.customer.phone}")
+
+        if "reservation" in fields:
+            lines.append(f"Reservation: {userdata.reservation.summary()}")
+
+        if "order" in fields:
+            lines.append(f"Order: {userdata.order.summary()}")
+
+        if "payment_status" in fields:
+            lines.append(f"Payment: {'complete' if userdata.payment.is_complete else 'pending'}")
+
+        if not lines:
+            return userdata.summarize()
+
+        return "\n".join(lines)
+
+    def _get_model_name(self) -> str:
+        """Get the model name from the agent's LLM for token counting."""
+        try:
+            return self._llm.model or "gpt-4o-mini"
+        except Exception:
+            return "gpt-4o-mini"
 
     def _truncate_chat_ctx(
         self,
@@ -65,9 +158,7 @@ class BaseAgent(Agent):
         def _valid(item) -> bool:
             if item.type == "message" and item.role == "system":
                 return False
-            if not keep_function_call and item.type in [
-                "function_call", "function_call_output"
-            ]:
+            if not keep_function_call and item.type in ["function_call", "function_call_output"]:
                 return False
             return True
 
@@ -85,6 +176,21 @@ class BaseAgent(Agent):
 
         return result
 
+    def _validate_response(self, response: str) -> bool:
+        from src.core.output_validator import get_validator
+
+        validator = get_validator()
+        result = validator.validate(response, self.__class__.__name__)
+        if not result.valid:
+            logfire.warning(
+                "output_validator.failed",
+                agent=self.__class__.__name__,
+                reason=result.reason,
+                severity=result.severity,
+            )
+            return False
+        return True
+
     async def _transfer_to_agent(
         self,
         name: str,
@@ -95,6 +201,11 @@ class BaseAgent(Agent):
         userdata.prev_agent = context.session.current_agent
         userdata.last_handoff_reason = reason
 
+        if userdata.metrics:
+            userdata.metrics.record_transfer(
+                from_agent=self.__class__.__name__,
+                to_agent=name,
+            )
         if userdata.audit:
             userdata.audit.log(
                 action=AuditAction.TRANSFER,
@@ -109,30 +220,3 @@ class BaseAgent(Agent):
             session_id=userdata.session_id,
         )
         return userdata.agents[name], "One moment, transferring you now."
-        
-    def _validate_response(self, response: str) -> bool:
-            """
-            Validate LLM response before it reaches the caller.
-           Returns True if valid, False if agent should retry.
-          """
-    from src.core.output_validator import get_validator
-    validator = get_validator()
-    agent_name = self.__class__.__name__
-    result = validator.validate(response, agent_name)
-
-    if not result.valid:
-        logfire.warning(
-            "output_validator.failed",
-            agent=agent_name,
-            reason=result.reason,
-            severity=result.severity,
-        )
-        return False
-
-    return True
-
-
-
-    
-
-     
