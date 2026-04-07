@@ -38,8 +38,8 @@ flowchart TD
     A[New message arrives] --> B{Context usage?}
     B -->|below 70%| C[Continue normally]
     B -->|≥ 70% of safe limit| D[Try compression]
-    D -->|LLM available| E[Summarise old turns\nkeep last 4 verbatim]
-    D -->|LLM unavailable| F[Truncation fallback\nkeep last 6 messages]
+    D -->|LLM available| E[Summarise old turns<br/>keep last 4 verbatim]
+    D -->|LLM unavailable| F[Truncation fallback<br/>keep last 6 messages]
     G[Agent transfer] --> F
     E --> H[Prepend summary as system message]
     F --> H
