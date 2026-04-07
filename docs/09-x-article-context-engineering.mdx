@@ -1,6 +1,6 @@
 ---
 title: "Context Engineering for Voice Agents"
-description: "How to manage memory, state, retrieval, and prompts in a live phone call — with examples from Wingu"
+description: "How to manage memory, state, retrieval, and prompts in a live phone call — every layer, with code and diagrams"
 ---
 
 # Context Engineering for Voice Agents
@@ -14,8 +14,8 @@ the silence feels like a dropped line. Every token in the context costs latency 
 The caller cannot scroll up. There is no retry button. What goes into the context window on
 every turn is one of the most consequential decisions in a voice agent system.
 
-This article breaks down every layer of context engineering for voice, with examples from
-Wingu Restaurant's four-agent system.
+This article breaks down every layer — short-term memory, long-term memory, state, RAG,
+prompts, drift, and PII — with diagrams and code from a real four-agent phone system.
 
 ---
 
@@ -30,6 +30,20 @@ As a call grows, the context window fills. Older messages become noise. The mode
 confusing what the caller said five minutes ago with what they said just now. On a phone
 call, this sounds like the agent forgetting things the caller already said — one of the
 fastest ways to lose trust.
+
+### Two interventions: truncation and compression
+
+```mermaid
+flowchart TD
+    A[New message arrives] --> B{Context usage?}
+    B -->|below 70%| C[Continue normally]
+    B -->|≥ 70% of safe limit| D[Try compression]
+    D -->|LLM available| E[Summarise old turns\nkeep last 4 verbatim]
+    D -->|LLM unavailable| F[Truncation fallback\nkeep last 6 messages]
+    G[Agent transfer] --> F
+    E --> H[Prepend summary as system message]
+    F --> H
+```
 
 ### Truncation — fast, lossy
 
@@ -54,8 +68,8 @@ def _truncate_chat_ctx(self, items, keep_last_n=6):
     return result
 ```
 
-Truncation is used on every agent transfer in Wingu. The incoming agent gets the last 6
-messages — enough to continue the conversation without dragging the full history forward.
+Truncation fires on every agent transfer. The incoming agent gets the last 6 messages —
+enough to continue the conversation without dragging the full history forward.
 
 The key rule: **never split a tool call from its result**. If message 6 is a function call
 and message 7 is its output, they must travel together or the model will see a call with
@@ -95,18 +109,18 @@ a mismatch between what was just said and what the model thinks it said.
 
 ### Context window sizes matter per model
 
-Different models in the same call have different limits. In Wingu:
+Different models in the same call have different limits.
 
-| Agent | Model | Context limit |
+| Agent role | Model | Context limit |
 |---|---|---|
-| Neema | Groq Llama 3.1 | 8,000 tokens |
-| Baraka | Claude Haiku 3.5 | 200,000 tokens |
-| Zawadi | Claude Haiku 3.5 | 200,000 tokens |
-| Luchetu | Claude Sonnet 3.5 | 200,000 tokens |
+| Greeter | Groq Llama 3.1 | 8,000 tokens |
+| Reservation | Claude Haiku 3.5 | 200,000 tokens |
+| Takeaway | Claude Haiku 3.5 | 200,000 tokens |
+| Checkout | Claude Sonnet 3.5 | 200,000 tokens |
 
-Neema's window is the tightest by a factor of 25. She should receive the leanest context
-possible — no menu, no order history, no payment state. Her job is routing, and routing
-takes three or four turns.
+The greeter's window is the tightest by a factor of 25. It should receive the leanest
+context possible — no menu, no order history, no payment state. Its job is routing, and
+routing takes three or four turns.
 
 ---
 
@@ -115,12 +129,11 @@ takes three or four turns.
 Long-term memory is anything that persists beyond the current call. It is not in the
 context window — it is retrieved and injected at the right moment.
 
-### What belongs in long-term memory for a restaurant
+### What belongs in long-term memory for a voice agent
 
-- Past orders (caller's usual order)
-- Reservation history (how often they book, average party size)
-- Known preferences (allergens, seating preference)
-- Name and phone number (so Neema can greet them by name)
+- Past interactions (caller's usual order, booking history)
+- Known preferences (allergens, seating preference, language)
+- Identity (name, phone number — so the greeter can address them immediately)
 
 ### How to inject it
 
@@ -135,12 +148,6 @@ Known allergen: gluten. Usual party size: 2.
 Seven words of long-term memory are worth more than seven paragraphs of instructions.
 The model uses the specific fact. It ignores the generic rule.
 
-### What Wingu currently does
-
-Wingu does not yet have long-term memory. The `greeter_returning.yaml` prompt variant
-is loaded when the caller's name is already in session state — but that only works within
-a session, not across calls. A database lookup at call start is the missing piece.
-
 ### The latency rule
 
 Long-term memory retrieval must complete before the first agent speaks. A caller who dials
@@ -149,6 +156,20 @@ in and waits three seconds before hearing a greeting has already had a bad exper
 Retrieval budget: **under 300ms**. If your database query or vector search takes longer
 than that, pre-fetch on the SIP event before the audio session opens.
 
+```mermaid
+sequenceDiagram
+    participant SIP
+    participant Session
+    participant DB
+    participant Greeter
+
+    SIP->>Session: Call arrives
+    Session->>DB: Fetch caller profile (by phone number)
+    DB-->>Session: Profile returned (<300ms)
+    Session->>Greeter: Start with profile injected
+    Greeter->>Caller: "Welcome back, Amara!"
+```
+
 ---
 
 ## 3. State Management
@@ -156,7 +177,8 @@ than that, pre-fetch on the SIP event before the audio session opens.
 State is different from memory. Memory is what was said. State is what was decided.
 
 In a multi-agent voice system, state is the single most important thing to get right. When
-Zawadi hands off to Luchetu, Luchetu does not read the conversation — she reads the state.
+the takeaway agent hands off to checkout, checkout does not read the conversation — it reads
+the state.
 
 ### Session state as the source of truth
 
@@ -198,9 +220,18 @@ and trust it is a valid integer between 1 and 20.
 
 ### Agent-scoped context injection
 
-When an agent enters, it receives only the state fields it needs. Neema does not see payment
-status. Baraka does not see order items. This is not just a privacy measure — it prevents
-the model from reasoning about things outside its scope.
+```mermaid
+flowchart LR
+    State[(Session State\nname · phone\norder · reservation\npayment)]
+
+    State -->|name, phone| Greeter
+    State -->|name, phone\nreservation| Reservation
+    State -->|name\norder| Takeaway
+    State -->|name, phone\norder, payment_status| Checkout
+```
+
+When an agent enters, it receives only the state fields it needs. This is not just a
+privacy measure — it prevents the model from reasoning about things outside its scope.
 
 ```python
 AGENT_CONTEXT_FIELDS = {
@@ -219,8 +250,8 @@ Order: Margherita Pizza x1 (KES 1,000), Water x1 (KES 100). Total: KES 1,100. St
 Payment: pending
 ```
 
-Luchetu reads this and knows exactly where she is picking up. She does not need to ask
-what the order is. She does not need to re-read the conversation.
+The checkout agent reads this and knows exactly where it is picking up. It does not need
+to ask what the order is. It does not need to re-read the conversation.
 
 ### Handoff reason as micro-context
 
@@ -254,6 +285,18 @@ constraint: **it must complete before the model starts generating**.
 A retrieval step that takes 800ms is fine in chat. In voice, it means 800ms of silence —
 which sounds like a dropped call.
 
+### Two types: static and dynamic
+
+```mermaid
+flowchart TD
+    A[Session start] -->|once| B[Static RAG\nMenu, policy, FAQs\ncached at startup]
+    C[Caller speaks] --> D{Intent needs\nexternal data?}
+    D -->|No| E[Model responds directly]
+    D -->|Yes| F[Dynamic RAG\nTool call fires\nfetches data mid-turn]
+    F --> G[Result injected\nas function output]
+    G --> E
+```
+
 ### Static RAG — inject once, reuse
 
 Some knowledge does not change during a call. The menu is the clearest example. Retrieve
@@ -272,8 +315,9 @@ def get_menu_summary() -> str:
     return "\n".join(lines)
 ```
 
-Inject only into agents that need it. Zawadi needs the menu. Baraka and Neema do not.
-Every token injected into Neema's 8K window is a token she cannot use for conversation.
+Inject only into agents that need it. The takeaway agent needs the menu. The greeter and
+reservation agent do not. Every token injected into the greeter's 8K window is a token it
+cannot use for conversation.
 
 ### Dynamic RAG — fetch per query
 
@@ -332,8 +376,8 @@ A long system prompt has two costs: tokens and attention. Every token in the sys
 is a token not available for conversation history. And a model reading a 2,000-token
 system prompt before every turn gives less attention to the recent conversation.
 
-Wingu's prompts average under 100 tokens each. That leaves the vast majority of even
-Neema's 8K window for the conversation.
+Well-designed voice agent prompts average under 100 tokens each. That leaves the vast
+majority of even an 8K window for the conversation.
 
 ### Separate stable instructions from runtime context
 
@@ -343,7 +387,7 @@ runtime as a separate system message.
 
 ```
 # System prompt (stable — loaded once)
-You are Baraka, the reservations specialist at Wingu Restaurant. Your job is
+You are the reservations specialist at this restaurant. Your job is
 to book a table for the caller...
 
 # Runtime context (injected at on_enter — changes every call)
@@ -389,22 +433,31 @@ early instructions are diluted by the volume of conversation that follows.
 
 ### How to prevent it
 
-**Short calls are the best defence.** Each Wingu agent owns a narrow slice of the call.
-Neema routes in two or three turns. Baraka collects three fields. No single agent runs
-long enough to drift significantly.
+**Short calls are the best defence.** Each agent in a multi-agent system should own a
+narrow slice of the call. A greeter routes in two or three turns. A reservation agent
+collects three fields. No single agent runs long enough to drift significantly.
 
-**Re-inject identity on every turn if needed.** For agents that run longer (Zawadi,
-Luchetu), a brief identity note in the system message on `on_enter` anchors the model:
+```mermaid
+flowchart LR
+    Greeter -->|2-3 turns| Reservation
+    Greeter -->|2-3 turns| Takeaway
+    Takeaway -->|order complete| Checkout
+    Reservation -->|done| Greeter
+    Checkout -->|done| End([Call ends])
+```
+
+**Re-inject identity on every entry.** For agents that run longer, a brief identity note
+in the system message on `on_enter` anchors the model:
 
 ```
-You are Zawadi, the takeaway order taker at Wingu Restaurant.
+You are the takeaway order taker at Wingu Restaurant.
 ```
 
 This fires every time the agent enters — not just at session start.
 
 **Watch response length as a drift signal.** An agent whose responses are getting longer
-over the course of a call is usually drifting. `OutputValidator` catches responses over
-300 words, but rising average length before that threshold is worth monitoring in Logfire.
+over the course of a call is usually drifting. Rising average length before a word-count
+threshold is worth monitoring in your observability tool.
 
 ---
 
@@ -413,25 +466,40 @@ over the course of a call is usually drifting. `OutputValidator` catches respons
 Sensitive data in the context window is sensitive data the model can repeat. Voice agents
 collect more PII than most chat applications — names, phone numbers, card details.
 
-### Rules for Wingu
+### Rules
 
 - Card number, expiry, and CVV are stored as `SecretStr` — they cannot be serialised or
   logged without an explicit `.get_secret_value()` call
 - PII is masked before any string is written to the transcript or audit log
-- Luchetu is the only agent whose `AGENT_CONTEXT_FIELDS` includes payment — and even she
-  only receives `payment_status: pending/complete`, not the card details themselves
+- Only the checkout agent's `AGENT_CONTEXT_FIELDS` includes payment — and even then
+  it receives only `payment_status: pending/complete`, not the card details themselves
 - The model is instructed never to repeat the full card number — only the last four digits
 
 ### What the model should never see in context
 
 - Full card numbers in conversation history
 - CVV at any point after collection
-- Any PII in a compressed summary (the compression prompt explicitly excludes PII fields
-  by design — they live in `PaymentInfo`, not in the chat messages)
+- Any PII in a compressed summary (compression prompts should explicitly exclude PII
+  fields — they live in typed state objects, not in chat messages)
 
 ---
 
 ## Summary
+
+```mermaid
+flowchart TD
+    STM[Short-term memory\nTruncate on transfer\nCompress at 70%]
+    LTM[Long-term memory\nPre-fetch before first turn\n< 300ms budget]
+    State[State management\nWrite via tools\nRead via scoped injection]
+    RAG[RAG\nStatic at startup\nDynamic via tool calls]
+    Prompt[Prompt engineering\nShort · stable · runtime separate]
+    Drift[Drift prevention\nNarrow agent scope\nRe-inject identity]
+    PII[PII handling\nSecretStr · mask before log\nScope by agent]
+
+    STM & LTM & State & RAG & Prompt & Drift & PII --> Core
+
+    Core["Give the model exactly what it needs\nfor this turn, nothing more.\nTrust the state object to hold everything else."]
+```
 
 | Layer | What it manages | Key principle |
 |---|---|---|
