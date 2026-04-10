@@ -54,7 +54,7 @@ knows the caller's name, she greets them by name regardless of the hour.
 
 ## Baraka — Reservation Agent
 
-**Model:** Anthropic Claude Haiku 3.5
+**Model:** Haiku 3.5
 **Prompt:** `src/prompts/reservation.yaml`
 **Defined in:** `src/agents/reservation.py`
 
@@ -63,7 +63,7 @@ and will not confirm a reservation until all three are present and valid. Each f
 into session state via a dedicated function tool as soon as the caller provides it, so nothing
 is lost if the call drops or the context is compressed.
 
-Claude Haiku is used for structured data collection tasks like this. It is fast, accurate at
+Haiku is used for structured data collection tasks like this. It is fast, accurate at
 following instructions, and cheap enough to run across the full conversation without pressure
 on the session cost budget.
 
@@ -93,7 +93,7 @@ If any field is missing it returns an error string and Baraka asks the caller fo
 
 ## Zawadi — Takeaway Agent
 
-**Model:** Anthropic Claude Haiku 3.5
+**Model:** Haiku 3.5
 **Prompt:** `src/prompts/takeaway.yaml`
 **Defined in:** `src/agents/takeaway.py`
 
@@ -101,7 +101,7 @@ Zawadi builds the caller's food order. She presents menu items conversationally,
 removes items on request, keeps a running total, and upsells naturally — suggesting a drink
 with a main course, or a dessert when the order looks like a meal. She does not push.
 
-Like Baraka, Zawadi uses Claude Haiku. The task is structured but conversational — following
+Like Baraka, Zawadi uses Haiku. The task is structured but conversational — following
 the menu, tracking quantities, reading totals — and Haiku handles it cleanly at a cost that
 does not pressure the session budget.
 
@@ -138,7 +138,7 @@ cannot send a caller to Luchetu with an empty or unconfirmed order.
 
 ## Luchetu — Checkout Agent
 
-**Model:** Anthropic Claude Sonnet 3.5
+**Model:** Sonnet 3.5
 **Prompt:** `src/prompts/checkout.yaml`
 **Defined in:** `src/agents/checkout.py`
 
@@ -146,7 +146,7 @@ Luchetu is the only agent that handles money. He collects the caller's card numb
 and CVV — one field at a time — then reads back only the last four digits of the card for
 confirmation. He issues an order reference and closes the call.
 
-Claude Sonnet is used here and nowhere else. Payment collection demands the most capable
+Sonnet is used here and nowhere else. Payment collection demands the most capable
 model in the stack: it must stay on-script under pressure, never repeat sensitive details
 back to the caller, handle corrections gracefully, and resist any attempt to extract card
 data in a non-standard way. The additional cost of Sonnet at this stage of the call is

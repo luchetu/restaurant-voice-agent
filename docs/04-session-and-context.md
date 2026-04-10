@@ -38,8 +38,8 @@ provider fails, the system switches silently — the caller hears no gap.
 |---|---|---|
 | Speech-to-text | Deepgram Nova-2 | OpenAI Whisper |
 | Greeter LLM | Groq Llama 3.1 | OpenAI GPT-4o-mini |
-| Reservation / Takeaway LLM | Claude Haiku 3.5 | OpenAI GPT-4o-mini |
-| Checkout LLM | Claude Sonnet 3.5 | OpenAI GPT-4o-mini |
+| Reservation / Takeaway LLM | Haiku 3.5 | OpenAI GPT-4o-mini |
+| Checkout LLM | Sonnet 3.5 | OpenAI GPT-4o-mini |
 | Text-to-speech | Cartesia Sonic-2 | OpenAI TTS |
 | Intent embeddings | Local `all-MiniLM-L6-v2` | OpenAI `text-embedding-3-small` |
 | Voice activity detection | Silero | **None — required** |
@@ -71,8 +71,8 @@ of the model's safe limit, which reserves 20% headroom below the hard context ce
 
 | Model | Context limit | Safe limit (80%) |
 |---|---|---|
-| Claude Haiku 3.5 | 200,000 tokens | 160,000 tokens |
-| Claude Sonnet 3.5 | 200,000 tokens | 160,000 tokens |
+| Haiku 3.5 | 200,000 tokens | 160,000 tokens |
+| Sonnet 3.5 | 200,000 tokens | 160,000 tokens |
 | OpenAI GPT-4o-mini | 128,000 tokens | 102,400 tokens |
 | Groq Llama 3.1 | 8,000 tokens | 6,400 tokens |
 
@@ -117,8 +117,8 @@ from token counts and per-model pricing:
 | Model | Input | Output |
 |---|---|---|
 | Groq Llama 3.1 | $0.05 / M tokens | $0.08 / M tokens |
-| Claude Haiku 3.5 | $0.80 / M tokens | $4.00 / M tokens |
-| Claude Sonnet 3.5 | $3.00 / M tokens | $15.00 / M tokens |
+| Haiku 3.5 | $0.80 / M tokens | $4.00 / M tokens |
+| Sonnet 3.5 | $3.00 / M tokens | $15.00 / M tokens |
 | OpenAI GPT-4o-mini | $0.15 / M tokens | $0.60 / M tokens |
 
 Three thresholds trigger automatic actions as the running total climbs:

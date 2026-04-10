@@ -27,9 +27,9 @@ straight there if she is confident enough.
 | Agent | Model | Role |
 |---|---|---|
 | **Neema** | Groq Llama 3.1 8B | Answers the call, classifies intent, routes to the right agent |
-| **Baraka** | Claude Haiku 3.5 | Collects reservation details — date, time, party size |
-| **Zawadi** | Claude Haiku 3.5 | Takes the food order, upsells naturally, confirms before checkout |
-| **Luchetu** | Claude Sonnet 3.5 | Collects payment, masks card details, issues the order reference |
+| **Baraka** | Haiku 3.5 | Collects reservation details — date, time, party size |
+| **Zawadi** | Haiku 3.5 | Takes the food order, upsells naturally, confirms before checkout |
+| **Luchetu** | Sonnet 3.5 | Collects payment, masks card details, issues the order reference |
 
 When a caller is done with one thing and wants another — say, they booked a table and now
 want to add a takeaway — any agent can hand back to Neema. Context travels with every
@@ -84,8 +84,8 @@ stops speaking.
 | Agent framework | LiveKit Agents 1.4.6 | — |
 | Speech-to-text | Deepgram Nova-2 | OpenAI Whisper |
 | Greeter LLM | Groq Llama 3.1 8B | OpenAI GPT-4o-mini |
-| Reservation / Takeaway LLM | Anthropic Claude Haiku 3.5 | OpenAI GPT-4o-mini |
-| Checkout LLM | Anthropic Claude Sonnet 3.5 | OpenAI GPT-4o-mini |
+| Reservation / Takeaway LLM | Haiku 3.5 | OpenAI GPT-4o-mini |
+| Checkout LLM | Sonnet 3.5 | OpenAI GPT-4o-mini |
 | Text-to-speech | Cartesia Sonic-2 | OpenAI TTS |
 | Voice activity detection | Silero | *(none — required)* |
 | Intent embeddings | Sentence Transformers (local) | OpenAI text-embedding-3-small |
